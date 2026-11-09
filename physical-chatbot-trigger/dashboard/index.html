@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Physical Chatbot Trigger</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            charcoal: { 950: '#0A0C0B', 900: '#111513', 800: '#181E1B', 700: '#242C28' },
+            forest: { 950: '#0D2118', 900: '#143325', 800: '#1B4332', 700: '#2D6A4F', 500: '#40916C', 400: '#52B788' },
+            crimson: { 950: '#2A080C', 800: '#7F1D1D', 600: '#DC2626', 500: '#EF4444' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #0A0C0B;
+      background-image:
+        radial-gradient(circle at 12% 10%, rgba(27, 67, 50, 0.22), transparent 38%),
+        radial-gradient(circle at 88% 85%, rgba(220, 38, 38, 0.08), transparent 35%);
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    @keyframes crimson-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.65); }
+      70% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    }
+    .crimson-dot { animation: crimson-pulse 2s infinite; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0A0C0B; }
+    ::-webkit-scrollbar-thumb { background: #1B4332; border-radius: 4px; }
+  </style>
+</head>
+<body class="text-stone-100 min-h-screen antialiased selection:bg-forest-700 selection:text-white">
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-8 right-8 z-50 hidden bg-charcoal-900 border-2 border-forest-700 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3.5 max-w-sm">
+    <span id="toastIcon" class="text-lg">✅</span>
+    <span id="toastMsg" class="text-sm font-semibold tracking-wide">Action completed</span>
+  </div>
+
+  <!-- Header -->
+  <header class="border-b border-forest-800/70 bg-charcoal-950/85 backdrop-blur-xl sticky top-0 z-40">
+    <div class="max-w-[1440px] mx-auto px-6 sm:px-10 py-5 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
+
+      <div class="flex items-center gap-5">
+        <div class="w-14 h-14 rounded-2xl bg-forest-800 border border-forest-500/40 flex items-center justify-center shadow-lg shadow-forest-950 text-2xl">⚡</div>
+        <div>
+          <div class="flex flex-wrap items-center gap-3">
+            <h1 class="text-2xl font-bold tracking-tight text-white">Physical Chatbot Trigger</h1>
+            <span class="text-xs mono uppercase tracking-widest px-3 py-1 rounded-full bg-forest-900 text-forest-400 border border-forest-700/60 font-semibold">AWS IoT Serverless</span>
+          </div>
+          <p class="text-sm text-stone-400 mt-1">
+            MQTT <span class="text-forest-400 mx-1">➔</span> AWS IoT Core <span class="text-forest-400 mx-1">➔</span> Lambda <span class="text-forest-400 mx-1">➔</span> DynamoDB &amp; Webhook
+          </p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center bg-charcoal-900 border border-forest-800 focus-within:border-forest-500 rounded-2xl px-4 py-3 w-full sm:w-80 transition">
+          <span class="text-xs font-semibold text-forest-400 mr-3 mono uppercase tracking-wider">Endpoint</span>
+          <input id="apiUrlInput" type="text" placeholder="https://xxx.execute-api.us-east-1.amazonaws.com"
+            class="bg-transparent text-xs text-stone-200 focus:outline-none w-full mono placeholder-stone-600">
+        </div>
+        <div class="flex items-center bg-charcoal-900 border border-forest-800 focus-within:border-forest-500 rounded-2xl px-4 py-3 w-full sm:w-52 transition">
+          <span class="text-xs font-semibold text-crimson-500 mr-3 mono uppercase tracking-wider">🔒 Key</span>
+          <input id="adminKeyInput" type="password" placeholder="admin key" autocomplete="off"
+            class="bg-transparent text-xs text-stone-200 focus:outline-none w-full mono placeholder-stone-600">
+        </div>
+        <button onclick="saveConnection()" class="bg-forest-700 hover:bg-forest-500 text-white text-xs font-bold uppercase tracking-wider px-6 py-3.5 rounded-2xl transition shadow-lg shadow-forest-950">
+          Connect Cloud
+        </button>
+        <div class="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-charcoal-900 border border-charcoal-700 text-xs font-semibold text-stone-400">
+          <span id="connDot" class="w-2.5 h-2.5 rounded-full bg-crimson-600 crimson-dot"></span>
+          <span id="connText">Awaiting Endpoint</span>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <main class="max-w-[1440px] mx-auto px-6 sm:px-10 py-10 space-y-10">
+
+    <!-- Pipeline -->
+    <section class="bg-charcoal-900 border border-forest-800/80 rounded-3xl p-6 sm:p-8 shadow-xl">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+        <div>
+          <span class="text-xs font-bold uppercase tracking-widest text-forest-400 mono">Live System Topology</span>
+          <h2 class="text-lg font-bold text-white mt-0.5">End-to-End AWS Cloud Execution Pipeline</h2>
+        </div>
+        <span class="text-xs mono text-stone-400 bg-charcoal-800 border border-charcoal-700 px-3.5 py-1.5 rounded-xl">
+          Region: <strong class="text-forest-400">us-east-1</strong>
+        </span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="bg-charcoal-800/90 border border-forest-800/50 rounded-2xl p-4 flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-crimson-950 border border-crimson-800 text-crimson-500 flex items-center justify-center font-bold text-lg">01</div>
+          <div><div class="text-sm font-bold text-white">Button / MQTT</div><div class="text-xs text-stone-400 mono mt-0.5">TLS • topic publish</div></div>
+        </div>
+        <div class="bg-charcoal-800/90 border border-forest-800/50 rounded-2xl p-4 flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-forest-950 border border-forest-800 text-forest-400 flex items-center justify-center font-bold text-lg">02</div>
+          <div><div class="text-sm font-bold text-white">AWS IoT Core</div><div class="text-xs text-forest-400 mono mt-0.5">Rule engine</div></div>
+        </div>
+        <div class="bg-charcoal-800/90 border border-forest-800/50 rounded-2xl p-4 flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-forest-950 border border-forest-800 text-forest-400 flex items-center justify-center font-bold text-lg">03</div>
+          <div><div class="text-sm font-bold text-white">AWS Lambda</div><div class="text-xs text-forest-400 mono mt-0.5">Python 3.12</div></div>
+        </div>
+        <div class="bg-charcoal-800/90 border border-forest-800/50 rounded-2xl p-4 flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-forest-950 border border-forest-800 text-forest-400 flex items-center justify-center font-bold text-lg">04</div>
+          <div><div class="text-sm font-bold text-white">Amazon DynamoDB</div><div class="text-xs text-forest-400 mono mt-0.5">On-Demand NoSQL</div></div>
+        </div>
+        <div class="bg-charcoal-800/90 border border-forest-800/50 rounded-2xl p-4 flex items-center gap-4">
+          <div class="w-11 h-11 rounded-xl bg-crimson-950 border border-crimson-800 text-crimson-500 flex items-center justify-center font-bold text-lg">05</div>
+          <div><div class="text-sm font-bold text-white">Slack / Discord</div><div class="text-xs text-stone-400 mono mt-0.5">Webhook POST</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div class="bg-charcoal-900 border border-forest-800/80 rounded-3xl p-7 flex flex-col justify-between min-h-[160px] shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-widest text-stone-400">Total Triggers</span>
+          <span class="px-3 py-1 rounded-full text-xs mono font-semibold bg-forest-950 text-forest-400 border border-forest-800">DynamoDB</span>
+        </div>
+        <div class="my-3"><h3 id="kpiTotal" class="text-4xl font-bold text-white mono tracking-tight">0</h3></div>
+        <p class="text-xs text-stone-400">Cumulative MQTT and cloud dispatches</p>
+      </div>
+      <div class="bg-charcoal-900 border border-forest-800/80 rounded-3xl p-7 flex flex-col justify-between min-h-[160px] shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-widest text-stone-400">Webhook Delivery</span>
+          <span class="px-3 py-1 rounded-full text-xs mono font-semibold bg-forest-950 text-forest-400 border border-forest-800">HTTP 2xx</span>
+        </div>
+        <div class="my-3"><h3 id="kpiSuccess" class="text-4xl font-bold text-forest-400 mono tracking-tight">–</h3></div>
+        <p class="text-xs text-stone-400">Verified Slack / Discord receipt</p>
+      </div>
+      <div class="bg-charcoal-900 border border-forest-800/80 rounded-3xl p-7 flex flex-col justify-between min-h-[160px] shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-widest text-stone-400">Latest Event Time</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-crimson-600 crimson-dot"></span>
+        </div>
+        <div class="my-3"><h3 id="kpiLastTime" class="text-2xl font-bold text-white mono tracking-tight">Awaiting Press</h3></div>
+        <p id="kpiLastDevice" class="text-xs text-forest-400 mono">Node: esp32_button_1</p>
+      </div>
+      <div class="bg-gradient-to-br from-forest-900/60 to-charcoal-900 border border-forest-700 rounded-3xl p-7 flex flex-col justify-between min-h-[160px] shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-widest text-forest-400">Active Bot Message</span>
+          <span class="text-xs mono text-stone-300">LIVE CONFIG</span>
+        </div>
+        <div class="my-3"><p id="kpiActiveMsg" class="text-sm font-semibold text-white line-clamp-2 leading-relaxed">–</p></div>
+        <p class="text-xs text-stone-400">Stored in <code class="text-forest-400 mono">BotConfig</code></p>
+      </div>
+    </section>
+
+    <!-- Controls + chart -->
+    <section class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-stretch">
+
+      <div class="xl:col-span-5 bg-charcoal-900 border border-forest-800/90 rounded-3xl p-8 flex flex-col justify-between space-y-6 shadow-xl">
+        <div class="space-y-6">
+          <div class="border-b border-charcoal-700 pb-5">
+            <span class="text-xs font-bold uppercase tracking-widest text-forest-400 mono">DynamoDB State Manager</span>
+            <h2 class="text-xl font-bold text-white mt-1">Configure Chatbot Payload</h2>
+            <p class="text-sm text-stone-400 mt-1">Needs the admin key. Changes the message sent on every press.</p>
+          </div>
+          <div class="space-y-5">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-stone-300 mb-2">Target Device ID</label>
+              <input id="deviceIdInput" type="text" value="esp32_button_1"
+                class="w-full bg-charcoal-800 border border-forest-800 focus:border-forest-500 rounded-2xl px-4 py-3.5 text-sm text-white mono focus:outline-none transition">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-stone-300 mb-2.5">Quick-Load Presets</label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button onclick="setPreset('🚨 CRITICAL ALERT: Immediate assistance required at Lab Station 1!')"
+                  class="text-left text-xs bg-crimson-950/50 hover:bg-crimson-950 border border-crimson-800/80 text-stone-200 rounded-2xl p-3.5 transition flex items-center gap-2.5 font-medium">
+                  <span class="w-2 h-2 rounded-full bg-crimson-500 shrink-0"></span>Emergency Dispatch</button>
+                <button onclick="setPreset('☕ Breakroom Update: Fresh batch of coffee is ready!')"
+                  class="text-left text-xs bg-charcoal-800 hover:bg-forest-950 border border-forest-800/70 text-stone-200 rounded-2xl p-3.5 transition flex items-center gap-2.5 font-medium">
+                  <span class="w-2 h-2 rounded-full bg-forest-400 shrink-0"></span>Coffee Ready Ping</button>
+                <button onclick="setPreset('📢 Daily Engineering Standup starting in 2 minutes!')"
+                  class="text-left text-xs bg-charcoal-800 hover:bg-forest-950 border border-forest-800/70 text-stone-200 rounded-2xl p-3.5 transition flex items-center gap-2.5 font-medium">
+                  <span class="w-2 h-2 rounded-full bg-forest-400 shrink-0"></span>Standup Sync Call</button>
+                <button onclick="setPreset('✅ Production Release approved via Physical Hardware Key!')"
+                  class="text-left text-xs bg-charcoal-800 hover:bg-forest-950 border border-forest-800/70 text-stone-200 rounded-2xl p-3.5 transition flex items-center gap-2.5 font-medium">
+                  <span class="w-2 h-2 rounded-full bg-forest-400 shrink-0"></span>Deployment Sign-Off</button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-stone-300 mb-2">Custom Slack / Discord Message</label>
+              <textarea id="customMsgInput" rows="3" placeholder="Enter custom message payload..."
+                class="w-full bg-charcoal-800 border border-forest-800 focus:border-forest-500 rounded-2xl px-4 py-3.5 text-sm text-white focus:outline-none transition leading-relaxed"></textarea>
+            </div>
+          </div>
+        </div>
+        <button onclick="updateMessage()"
+          class="w-full bg-forest-700 hover:bg-forest-500 text-white font-bold py-4 rounded-2xl text-sm uppercase tracking-wider transition shadow-lg shadow-forest-950">
+          Save Configuration to DynamoDB
+        </button>
+      </div>
+
+      <div class="xl:col-span-7 flex flex-col justify-between gap-8">
+        <div class="bg-charcoal-900 border border-forest-800/90 rounded-3xl p-8 flex-1 flex flex-col justify-between shadow-xl">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-widest text-forest-400 mono">DynamoDB Metrics</span>
+              <h2 class="text-xl font-bold text-white mt-1">Trigger Frequency Timeline</h2>
+            </div>
+            <span class="text-xs mono text-forest-400 bg-forest-950 border border-forest-800 px-3.5 py-1.5 rounded-xl self-start sm:self-auto">Polling: 4s</span>
+          </div>
+          <div class="h-72 w-full"><canvas id="timelineChart"></canvas></div>
+        </div>
+
+        <div class="bg-gradient-to-r from-charcoal-900 via-crimson-950/60 to-charcoal-900 border-2 border-crimson-800/90 rounded-3xl p-7 sm:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-2xl">
+          <div class="space-y-1.5 max-w-lg">
+            <div class="flex items-center gap-2.5">
+              <span class="w-3 h-3 rounded-full bg-crimson-500 crimson-dot"></span>
+              <span class="text-xs font-bold uppercase tracking-widest text-crimson-500 mono">Protected action • admin key required</span>
+            </div>
+            <h3 class="text-xl font-bold text-white">Virtual Button Simulator</h3>
+            <p class="text-sm text-stone-300 leading-relaxed">Sends your active message to Discord/Slack and logs the event in DynamoDB.</p>
+          </div>
+          <button onclick="fireVirtualTrigger()" id="virtualBtn"
+            class="shrink-0 bg-crimson-600 hover:bg-crimson-500 active:scale-[0.98] text-white font-bold px-8 py-5 rounded-2xl text-sm uppercase tracking-wider transition shadow-xl shadow-crimson-950 flex items-center justify-center gap-3 border border-crimson-500">
+            <span class="text-lg">🔘</span><span>Fire Trigger Now</span>
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Log table -->
+    <section class="bg-charcoal-900 border border-forest-800/90 rounded-3xl p-8 space-y-6 shadow-xl">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-charcoal-700 pb-6">
+        <div>
+          <span class="text-xs font-bold uppercase tracking-widest text-forest-400 mono">Immutable Event Ledger</span>
+          <h2 class="text-xl font-bold text-white mt-1">DynamoDB Button Press History</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <input id="searchInput" oninput="renderTable()" type="text" placeholder="Filter by message or device ID..."
+            class="bg-charcoal-800 border border-forest-800 focus:border-forest-500 rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none w-64">
+          <button onclick="fetchLogs()" class="bg-charcoal-800 hover:bg-forest-900 border border-forest-800 text-stone-200 text-xs font-semibold px-4 py-2.5 rounded-2xl transition">🔄 Sync Now</button>
+          <button onclick="exportCSV()" class="bg-forest-800 hover:bg-forest-700 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl transition">⬇️ Export CSV</button>
+          <button onclick="clearLogs()" class="bg-crimson-950/80 hover:bg-crimson-600 text-crimson-500 hover:text-white border border-crimson-800 text-xs font-semibold px-4 py-2.5 rounded-2xl transition">🗑️ Purge Ledger</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-charcoal-700 text-xs font-bold text-stone-400 uppercase tracking-wider">
+              <th class="py-4 px-5">Time (local)</th>
+              <th class="py-4 px-5">Trigger Origin</th>
+              <th class="py-4 px-5">Device ID</th>
+              <th class="py-4 px-5">Dispatched Payload</th>
+              <th class="py-4 px-5 text-right">Webhook Status</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody" class="divide-y divide-charcoal-800 text-sm">
+            <tr><td colspan="5" class="py-14 text-center text-stone-500">Paste your API Invoke URL and admin key above, then click <strong class="text-forest-400">Connect Cloud</strong>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    let apiUrl = lsGet('iot_enterprise_api_url');
+    let adminKey = lsGet('iot_admin_key');
+    let allLogs = [];
+    let chartInstance = null;
+
+    initChart();
+    document.getElementById('apiUrlInput').value = apiUrl;
+    document.getElementById('adminKeyInput').value = adminKey;
+    if (apiUrl) fetchLogs();
+
+    function showToast(msg, icon = '✅') {
+      const t = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      document.getElementById('toastIcon').textContent = icon;
+      t.classList.remove('hidden');
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => t.classList.add('hidden'), 3500);
+    }
+
+    function setPreset(text) { document.getElementById('customMsgInput').value = text; }
+
+    function saveConnection() {
+      let val = document.getElementById('apiUrlInput').value.trim();
+      if (val.endsWith('/')) val = val.slice(0, -1);
+      apiUrl = val;
+      adminKey = document.getElementById('adminKeyInput').value.trim();
+      lsSet('iot_enterprise_api_url', apiUrl);
+      lsSet('iot_admin_key', adminKey);
+      showToast(adminKey ? 'Connection and key saved' : 'Connected (no admin key set: read-only)', '🌲');
+      fetchLogs();
+    }
+
+    // Sends a protected request (POST / DELETE) with the admin key header
+    async function writeCall(method, path, bodyObj) {
+      if (!apiUrl) throw new Error('NO_URL');
+      const res = await fetch(apiUrl + path, {
+        method: method,
+        headers: { 'Content-Type': 'text/plain', 'x-api-key': adminKey },
+        body: bodyObj ? JSON.stringify(bodyObj) : undefined
+      });
+      if (res.status === 401) throw new Error('UNAUTHORIZED');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res;
+    }
+
+    function explain(e) {
+      if (e.message === 'NO_URL') return 'Connect your API URL first!';
+      if (e.message === 'UNAUTHORIZED') return 'Wrong or missing admin key. Enter it at the top and click Connect Cloud.';
+      return 'Failed: ' + e.message;
+    }
+
+    function initChart() {
+      const ctx = document.getElementById('timelineChart').getContext('2d');
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [{
+          label: 'Trigger Events', data: [],
+          backgroundColor: '#2D6A4F', hoverBackgroundColor: '#DC2626',
+          borderColor: '#52B788', borderWidth: 1, borderRadius: 8, barThickness: 28
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1, color: '#A8A29E', font: { family: 'JetBrains Mono' } }, grid: { color: '#181E1B' } },
+            x: { ticks: { color: '#A8A29E', font: { family: 'JetBrains Mono' } }, grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    async function fetchLogs() {
+      if (!apiUrl) return;
+      try {
+        const res = await fetch(apiUrl + '/logs');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const payload = await res.json();
+
+        allLogs = Array.isArray(payload) ? payload : (payload.logs || []);
+        const configs = Array.isArray(payload) ? [] : (payload.configs || []);
+
+        document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-forest-400';
+        document.getElementById('connText').textContent = 'AWS Connected';
+        document.getElementById('connText').className = 'text-forest-400 font-bold';
+
+        allLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        document.getElementById('kpiTotal').textContent = allLogs.length;
+        if (allLogs.length > 0) {
+          const ok = allLogs.filter(x => Number(x.webhook_status) >= 200 && Number(x.webhook_status) < 300).length;
+          document.getElementById('kpiSuccess').textContent = Math.round((ok / allLogs.length) * 100) + '%';
+          const latest = new Date(allLogs[0].timestamp);
+          document.getElementById('kpiLastTime').textContent = isNaN(latest) ? allLogs[0].timestamp : latest.toLocaleTimeString();
+          document.getElementById('kpiLastDevice').textContent = 'Node: ' + allLogs[0].device_id;
+        } else {
+          document.getElementById('kpiSuccess').textContent = '–';
+          document.getElementById('kpiLastTime').textContent = 'Awaiting Press';
+        }
+        if (configs.length > 0) {
+          document.getElementById('kpiActiveMsg').textContent = '"' + configs[0].custom_message + '"';
+        }
+        updateChart(allLogs);
+        renderTable();
+      } catch (err) {
+        const msg = err.message === 'Failed to fetch' ? 'Check URL / CORS' : 'Error: ' + err.message;
+        document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-crimson-600 crimson-dot';
+        document.getElementById('connText').textContent = msg;
+        document.getElementById('connText').className = 'text-crimson-500 font-semibold';
+      }
+    }
+
+    function updateChart(logs) {
+      if (!chartInstance) return;
+      const counts = {};
+      logs.slice(0, 25).reverse().forEach(item => {
+        const d = new Date(item.timestamp);
+        const label = isNaN(d) ? 'Event' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        counts[label] = (counts[label] || 0) + 1;
+      });
+      chartInstance.data.labels = Object.keys(counts);
+      chartInstance.data.datasets[0].data = Object.values(counts);
+      chartInstance.update();
+    }
+
+    function renderTable() {
+      const q = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = allLogs.filter(item =>
+        String(item.message_sent || '').toLowerCase().includes(q) ||
+        String(item.device_id || '').toLowerCase().includes(q)
+      );
+      const tbody = document.getElementById('logsTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-14 text-center text-stone-500">No events logged yet. Publish from the MQTT test client or click <strong class="text-crimson-500">Fire Trigger Now</strong>.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(item => {
+        const isVirtual = item.trigger_source === 'CLOUD_DASHBOARD';
+        const badge = isVirtual
+          ? '<span class="px-3 py-1 rounded-xl text-xs font-bold bg-crimson-950 text-crimson-500 border border-crimson-800 mono">⚡ Cloud Override</span>'
+          : '<span class="px-3 py-1 rounded-xl text-xs font-bold bg-forest-950 text-forest-400 border border-forest-800 mono">🔘 MQTT / Device</span>';
+        const t = new Date(item.timestamp);
+        const when = isNaN(t) ? item.timestamp : t.toLocaleString();
+        return '<tr class="hover:bg-charcoal-800/70 transition">' +
+          '<td class="py-4 px-5 text-xs text-stone-300 mono">' + esc(when) + '</td>' +
+          '<td class="py-4 px-5">' + badge + '</td>' +
+          '<td class="py-4 px-5 text-xs mono text-forest-400 font-semibold">' + esc(item.device_id) + '</td>' +
+          '<td class="py-4 px-5 text-sm text-white font-medium">' + esc(item.message_sent) + '</td>' +
+          '<td class="py-4 px-5 text-right"><span class="px-3 py-1 rounded-xl text-xs font-bold bg-forest-950 text-forest-400 border border-forest-800 mono">HTTP ' + esc(item.webhook_status) + '</span></td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    async function updateMessage() {
+      const device_id = document.getElementById('deviceIdInput').value.trim();
+      const custom_message = document.getElementById('customMsgInput').value.trim();
+      if (!custom_message) return showToast('Enter a custom message first!', '⚠️');
+      try {
+        await writeCall('POST', '/config', { action: 'UPDATE_CONFIG', device_id, custom_message });
+        document.getElementById('kpiActiveMsg').textContent = '"' + custom_message + '"';
+        showToast('Saved to DynamoDB! Ready for trigger.');
+        fetchLogs();
+      } catch (e) { showToast(explain(e), '❌'); }
+    }
+
+    async function fireVirtualTrigger() {
+      const device_id = document.getElementById('deviceIdInput').value.trim();
+      const btn = document.getElementById('virtualBtn');
+      btn.innerHTML = '<span>🚀 Dispatching...</span>';
+      try {
+        await writeCall('POST', '/config', { action: 'VIRTUAL_TRIGGER', device_id });
+        showToast('Trigger dispatched to Discord/Slack!', '⚡');
+        fetchLogs();
+      } catch (e) { showToast(explain(e), '❌'); }
+      finally { btn.innerHTML = '<span class="text-lg">🔘</span><span>Fire Trigger Now</span>'; }
+    }
+
+    async function clearLogs() {
+      if (!apiUrl) return showToast('Connect your API URL first!', '⚠️');
+      if (!confirm('Purge all button press history from DynamoDB?')) return;
+      try {
+        await writeCall('DELETE', '/logs');
+        showToast('DynamoDB ledger purged!', '🗑️');
+        fetchLogs();
+      } catch (e) { showToast(explain(e), '❌'); }
+    }
+
+    function exportCSV() {
+      if (allLogs.length === 0) return showToast('No logs to export!', '⚠️');
+      const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const lines = ['press_id,timestamp,device_id,trigger_source,webhook_status,message_sent'];
+      allLogs.forEach(x => lines.push([x.press_id, x.timestamp, x.device_id, x.trigger_source || 'MQTT', x.webhook_status, x.message_sent].map(q).join(',')));
+      const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'iot_trigger_logs_' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+      showToast('CSV exported!', '📊');
+    }
+
+    setInterval(() => { if (apiUrl) fetchLogs(); }, 4000);
+  </script>
+</body>
+</html>
